@@ -8,10 +8,10 @@
 import { describe, it } from 'mocha';
 import { expectPassesRule, expectFailsRule } from './harness';
 import {
-  ProvidedNonNullArguments,
+  ProvidedRequiredArguments,
   missingFieldArgMessage,
   missingDirectiveArgMessage,
-} from '../rules/ProvidedNonNullArguments';
+} from '../rules/ProvidedRequiredArguments';
 
 function missingFieldArg(fieldName, argName, typeName, line, column) {
   return {
@@ -32,7 +32,7 @@ function missingDirectiveArg(directiveName, argName, typeName, line, column) {
 describe('Validate: Provided required arguments', () => {
   it('ignores unknown arguments', () => {
     expectPassesRule(
-      ProvidedNonNullArguments,
+      ProvidedRequiredArguments,
       `
       {
         dog {
@@ -46,7 +46,7 @@ describe('Validate: Provided required arguments', () => {
   describe('Valid non-nullable value', () => {
     it('Arg on optional arg', () => {
       expectPassesRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           dog {
@@ -59,7 +59,7 @@ describe('Validate: Provided required arguments', () => {
 
     it('No Arg on optional arg', () => {
       expectPassesRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           dog {
@@ -70,9 +70,22 @@ describe('Validate: Provided required arguments', () => {
       );
     });
 
+    it('No arg on non-null field with default', () => {
+      expectPassesRule(
+        ProvidedRequiredArguments,
+        `
+        {
+          complicatedArgs {
+            nonNullFieldWithDefault
+          }
+        }
+      `,
+      );
+    });
+
     it('Multiple args', () => {
       expectPassesRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           complicatedArgs {
@@ -85,7 +98,7 @@ describe('Validate: Provided required arguments', () => {
 
     it('Multiple args reverse order', () => {
       expectPassesRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           complicatedArgs {
@@ -98,7 +111,7 @@ describe('Validate: Provided required arguments', () => {
 
     it('No args on multiple optional', () => {
       expectPassesRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           complicatedArgs {
@@ -111,7 +124,7 @@ describe('Validate: Provided required arguments', () => {
 
     it('One arg on multiple optional', () => {
       expectPassesRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           complicatedArgs {
@@ -124,7 +137,7 @@ describe('Validate: Provided required arguments', () => {
 
     it('Second arg on multiple optional', () => {
       expectPassesRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           complicatedArgs {
@@ -137,7 +150,7 @@ describe('Validate: Provided required arguments', () => {
 
     it('Multiple reqs on mixedList', () => {
       expectPassesRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           complicatedArgs {
@@ -150,7 +163,7 @@ describe('Validate: Provided required arguments', () => {
 
     it('Multiple reqs and one opt on mixedList', () => {
       expectPassesRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           complicatedArgs {
@@ -163,7 +176,7 @@ describe('Validate: Provided required arguments', () => {
 
     it('All reqs and opts on mixedList', () => {
       expectPassesRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           complicatedArgs {
@@ -178,7 +191,7 @@ describe('Validate: Provided required arguments', () => {
   describe('Invalid non-nullable value', () => {
     it('Missing one non-nullable argument', () => {
       expectFailsRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           complicatedArgs {
@@ -192,7 +205,7 @@ describe('Validate: Provided required arguments', () => {
 
     it('Missing multiple non-nullable arguments', () => {
       expectFailsRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           complicatedArgs {
@@ -209,7 +222,7 @@ describe('Validate: Provided required arguments', () => {
 
     it('Incorrect value and missing argument', () => {
       expectFailsRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           complicatedArgs {
@@ -225,7 +238,7 @@ describe('Validate: Provided required arguments', () => {
   describe('Directive arguments', () => {
     it('ignores unknown directives', () => {
       expectPassesRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           dog @unknown
@@ -236,7 +249,7 @@ describe('Validate: Provided required arguments', () => {
 
     it('with directives of valid types', () => {
       expectPassesRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           dog @include(if: true) {
@@ -252,7 +265,7 @@ describe('Validate: Provided required arguments', () => {
 
     it('with directive with missing types', () => {
       expectFailsRule(
-        ProvidedNonNullArguments,
+        ProvidedRequiredArguments,
         `
         {
           dog @include {
