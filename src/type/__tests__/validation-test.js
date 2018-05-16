@@ -33,12 +33,12 @@ const SomeScalarType = new GraphQLScalarType({
 
 const SomeInterfaceType = new GraphQLInterfaceType({
   name: 'SomeInterface',
-  fields: { f: { type: GraphQLString } },
+  fields: () => ({ f: { type: SomeObjectType } }),
 });
 
 const SomeObjectType = new GraphQLObjectType({
   name: 'SomeObject',
-  fields: { f: { type: GraphQLString } },
+  fields: () => ({ f: { type: SomeObjectType } }),
   interfaces: [SomeInterfaceType],
 });
 
@@ -77,7 +77,7 @@ const outputTypes = withModifiers([
   SomeInterfaceType,
 ]);
 
-const notOutputTypes = withModifiers([SomeInputObjectType]).concat(Number);
+const notOutputTypes = withModifiers([SomeInputObjectType]);
 
 const inputTypes = withModifiers([
   GraphQLString,
@@ -90,7 +90,7 @@ const notInputTypes = withModifiers([
   SomeObjectType,
   SomeUnionType,
   SomeInterfaceType,
-]).concat(Number);
+]);
 
 function schemaWithFieldType(type) {
   return new GraphQLSchema({
@@ -187,10 +187,9 @@ describe('Type System: A Schema must have Object root types', () => {
         test: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message: 'Query root type must be provided.',
-        locations: undefined,
       },
     ]);
 
@@ -203,7 +202,7 @@ describe('Type System: A Schema must have Object root types', () => {
         test: String
       }
     `);
-    expect(validateSchema(schemaWithDef)).to.containSubset([
+    expect(validateSchema(schemaWithDef)).to.deep.equal([
       {
         message: 'Query root type must be provided.',
         locations: [{ line: 2, column: 7 }],
@@ -217,7 +216,7 @@ describe('Type System: A Schema must have Object root types', () => {
         test: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message: 'Query root type must be Object type, it cannot be Query.',
         locations: [{ line: 2, column: 7 }],
@@ -233,7 +232,7 @@ describe('Type System: A Schema must have Object root types', () => {
         test: String
       }
     `);
-    expect(validateSchema(schemaWithDef)).to.containSubset([
+    expect(validateSchema(schemaWithDef)).to.deep.equal([
       {
         message:
           'Query root type must be Object type, it cannot be SomeInputObject.',
@@ -252,7 +251,7 @@ describe('Type System: A Schema must have Object root types', () => {
         test: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Mutation root type must be Object type if provided, it cannot be Mutation.',
@@ -274,7 +273,7 @@ describe('Type System: A Schema must have Object root types', () => {
         test: String
       }
     `);
-    expect(validateSchema(schemaWithDef)).to.containSubset([
+    expect(validateSchema(schemaWithDef)).to.deep.equal([
       {
         message:
           'Mutation root type must be Object type if provided, it cannot be SomeInputObject.',
@@ -293,7 +292,7 @@ describe('Type System: A Schema must have Object root types', () => {
         test: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Subscription root type must be Object type if provided, it cannot be Subscription.',
@@ -315,11 +314,64 @@ describe('Type System: A Schema must have Object root types', () => {
         test: String
       }
     `);
-    expect(validateSchema(schemaWithDef)).to.containSubset([
+    expect(validateSchema(schemaWithDef)).to.deep.equal([
       {
         message:
           'Subscription root type must be Object type if provided, it cannot be SomeInputObject.',
         locations: [{ line: 4, column: 23 }],
+      },
+    ]);
+  });
+
+  it('rejects a schema extended with invalid root types', () => {
+    let schema = buildSchema(`
+      input SomeInputObject {
+        test: String
+      }
+    `);
+
+    schema = extendSchema(
+      schema,
+      parse(`
+        extend schema {
+          query: SomeInputObject
+        }
+      `),
+    );
+
+    schema = extendSchema(
+      schema,
+      parse(`
+        extend schema {
+          mutation: SomeInputObject
+        }
+      `),
+    );
+
+    schema = extendSchema(
+      schema,
+      parse(`
+        extend schema {
+          subscription: SomeInputObject
+        }
+      `),
+    );
+
+    expect(validateSchema(schema)).to.deep.equal([
+      {
+        message:
+          'Query root type must be Object type, it cannot be SomeInputObject.',
+        locations: [{ line: 3, column: 18 }],
+      },
+      {
+        message:
+          'Mutation root type must be Object type if provided, it cannot be SomeInputObject.',
+        locations: [{ line: 3, column: 21 }],
+      },
+      {
+        message:
+          'Subscription root type must be Object type if provided, it cannot be SomeInputObject.',
+        locations: [{ line: 3, column: 25 }],
       },
     ]);
   });
@@ -329,7 +381,7 @@ describe('Type System: A Schema must have Object root types', () => {
       query: SomeObjectType,
       directives: ['somedirective'],
     });
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message: 'Expected directive but got: somedirective.',
       },
@@ -359,7 +411,7 @@ describe('Type System: Objects must have fields', () => {
 
       type IncompleteObject
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message: 'Type IncompleteObject must define one or more fields.',
         locations: [{ line: 6, column: 7 }],
@@ -372,7 +424,7 @@ describe('Type System: Objects must have fields', () => {
         fields: {},
       }),
     );
-    expect(validateSchema(manualSchema)).to.containSubset([
+    expect(validateSchema(manualSchema)).to.deep.equal([
       {
         message: 'Type IncompleteObject must define one or more fields.',
       },
@@ -386,7 +438,7 @@ describe('Type System: Objects must have fields', () => {
         },
       }),
     );
-    expect(validateSchema(manualSchema2)).to.containSubset([
+    expect(validateSchema(manualSchema2)).to.deep.equal([
       {
         message: 'Type IncompleteObject must define one or more fields.',
       },
@@ -400,7 +452,7 @@ describe('Type System: Objects must have fields', () => {
         fields: { 'bad-name-with-dashes': { type: GraphQLString } },
       }),
     );
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Names must match /^[_a-zA-Z][_a-zA-Z0-9]*$/ but ' +
@@ -423,7 +475,7 @@ describe('Type System: Objects must have fields', () => {
       }),
       allowedLegacyNames: ['__badName'],
     });
-    expect(validateSchema(schemaBad)).to.containSubset([
+    expect(validateSchema(schemaBad)).to.deep.equal([
       {
         message:
           'Name "__badName" must not begin with "__", which is reserved by ' +
@@ -478,7 +530,7 @@ describe('Type System: Fields args must be properly named', () => {
       },
     });
     const schema = new GraphQLSchema({ query: QueryType });
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Names must match /^[_a-zA-Z][_a-zA-Z0-9]*$/ but "bad-name-with-dashes" does not.',
@@ -517,7 +569,7 @@ describe('Type System: Union types must be valid', () => {
 
       union BadUnion
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message: 'Union type BadUnion must define one or more member types.',
         locations: [{ line: 6, column: 7 }],
@@ -544,7 +596,7 @@ describe('Type System: Union types must be valid', () => {
         | TypeB
         | TypeA
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message: 'Union type BadUnion can only include type TypeA once.',
         locations: [{ line: 15, column: 11 }, { line: 17, column: 11 }],
@@ -571,7 +623,7 @@ describe('Type System: Union types must be valid', () => {
         | String
         | TypeB
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Union type BadUnion can only include Object types, ' +
@@ -593,7 +645,7 @@ describe('Type System: Union types must be valid', () => {
       const badSchema = schemaWithFieldType(
         new GraphQLUnionType({ name: 'BadUnion', types: [memberType] }),
       );
-      expect(validateSchema(badSchema)).to.containSubset([
+      expect(validateSchema(badSchema)).to.deep.equal([
         {
           message:
             'Union type BadUnion can only include Object types, ' +
@@ -626,7 +678,7 @@ describe('Type System: Input Objects must have fields', () => {
 
       input SomeInputObject
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Input Object type SomeInputObject must define one or more fields.',
@@ -653,7 +705,7 @@ describe('Type System: Input Objects must have fields', () => {
         goodInputObject: SomeInputObject
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'The type of SomeInputObject.badObject must be Input Type but got: SomeObject.',
@@ -677,7 +729,7 @@ describe('Type System: Enum types must be well defined', () => {
 
       enum SomeEnum
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message: 'Enum type SomeEnum must define one or more values.',
         locations: [{ line: 6, column: 7 }],
@@ -696,7 +748,7 @@ describe('Type System: Enum types must be well defined', () => {
         SOME_VALUE
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message: 'Enum type SomeEnum can include value SOME_VALUE only once.',
         locations: [{ line: 7, column: 9 }, { line: 8, column: 9 }],
@@ -717,7 +769,7 @@ describe('Type System: Enum types must be well defined', () => {
     }
 
     const schema1 = schemaWithEnum('#value');
-    expect(validateSchema(schema1)).to.containSubset([
+    expect(validateSchema(schema1)).to.deep.equal([
       {
         message:
           'Names must match /^[_a-zA-Z][_a-zA-Z0-9]*$/ but "#value" does not.',
@@ -725,7 +777,7 @@ describe('Type System: Enum types must be well defined', () => {
     ]);
 
     const schema2 = schemaWithEnum('1value');
-    expect(validateSchema(schema2)).to.containSubset([
+    expect(validateSchema(schema2)).to.deep.equal([
       {
         message:
           'Names must match /^[_a-zA-Z][_a-zA-Z0-9]*$/ but "1value" does not.',
@@ -733,7 +785,7 @@ describe('Type System: Enum types must be well defined', () => {
     ]);
 
     const schema3 = schemaWithEnum('KEBAB-CASE');
-    expect(validateSchema(schema3)).to.containSubset([
+    expect(validateSchema(schema3)).to.deep.equal([
       {
         message:
           'Names must match /^[_a-zA-Z][_a-zA-Z0-9]*$/ but "KEBAB-CASE" does not.',
@@ -741,17 +793,17 @@ describe('Type System: Enum types must be well defined', () => {
     ]);
 
     const schema4 = schemaWithEnum('true');
-    expect(validateSchema(schema4)).to.containSubset([
+    expect(validateSchema(schema4)).to.deep.equal([
       { message: 'Enum type SomeEnum cannot include value: true.' },
     ]);
 
     const schema5 = schemaWithEnum('false');
-    expect(validateSchema(schema5)).to.containSubset([
+    expect(validateSchema(schema5)).to.deep.equal([
       { message: 'Enum type SomeEnum cannot include value: false.' },
     ]);
 
     const schema6 = schemaWithEnum('null');
-    expect(validateSchema(schema6)).to.containSubset([
+    expect(validateSchema(schema6)).to.deep.equal([
       { message: 'Enum type SomeEnum cannot include value: null.' },
     ]);
   });
@@ -786,7 +838,7 @@ describe('Type System: Object fields must have output types', () => {
 
   it('rejects an empty Object field type', () => {
     const schema = schemaWithObjectFieldOfType(undefined);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'The type of BadObject.badField must be Output Type but got: undefined.',
@@ -797,12 +849,24 @@ describe('Type System: Object fields must have output types', () => {
   notOutputTypes.forEach(type => {
     it(`rejects a non-output type as an Object field type: ${type}`, () => {
       const schema = schemaWithObjectFieldOfType(type);
-      expect(validateSchema(schema)).to.containSubset([
+      expect(validateSchema(schema)).to.deep.equal([
         {
           message: `The type of BadObject.badField must be Output Type but got: ${type}.`,
         },
       ]);
     });
+  });
+
+  it('rejects a non-type value as an Object field type', () => {
+    const schema = schemaWithObjectFieldOfType(Number);
+    expect(validateSchema(schema)).to.deep.equal([
+      {
+        message: `The type of BadObject.badField must be Output Type but got: ${Number}.`,
+      },
+      {
+        message: `Expected GraphQL named type but got: ${Number}.`,
+      },
+    ]);
   });
 
   it('rejects with relevant locations for a non-output type as an Object field type', () => {
@@ -815,7 +879,7 @@ describe('Type System: Object fields must have output types', () => {
         field: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'The type of Query.field must be Output Type but got: [SomeInputObject].',
@@ -831,10 +895,11 @@ describe('Type System: Objects can only implement unique interfaces', () => {
       query: new GraphQLObjectType({
         name: 'BadObject',
         interfaces: [undefined],
+        fields: { f: { type: GraphQLString } },
       }),
     });
 
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Type BadObject must only implement Interface types, it cannot implement undefined.',
@@ -856,7 +921,7 @@ describe('Type System: Objects can only implement unique interfaces', () => {
         field: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Type BadObject must only implement Interface types, it cannot implement SomeInputObject.',
@@ -879,7 +944,7 @@ describe('Type System: Objects can only implement unique interfaces', () => {
         field: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message: 'Type AnotherObject can only implement AnotherInterface once.',
         locations: [{ line: 10, column: 37 }, { line: 10, column: 56 }],
@@ -905,7 +970,7 @@ describe('Type System: Objects can only implement unique interfaces', () => {
       schema,
       parse('extend type AnotherObject implements AnotherInterface'),
     );
-    expect(validateSchema(extendedSchema)).to.containSubset([
+    expect(validateSchema(extendedSchema)).to.deep.equal([
       {
         message: 'Type AnotherObject can only implement AnotherInterface once.',
         locations: [{ line: 10, column: 37 }, { line: 1, column: 38 }],
@@ -937,7 +1002,7 @@ describe('Type System: Interface extensions should be valid', () => {
         }
       `),
     );
-    expect(validateSchema(extendedSchema)).to.containSubset([
+    expect(validateSchema(extendedSchema)).to.deep.equal([
       {
         message:
           'Interface field AnotherInterface.newField expected but AnotherObject does not provide it.',
@@ -972,7 +1037,7 @@ describe('Type System: Interface extensions should be valid', () => {
         }
       `),
     );
-    expect(validateSchema(extendedSchema)).to.containSubset([
+    expect(validateSchema(extendedSchema)).to.deep.equal([
       {
         message:
           'Interface field argument AnotherInterface.newField(test:) expected but AnotherObject.newField does not provide it.',
@@ -1013,9 +1078,14 @@ describe('Type System: Interface extensions should be valid', () => {
         extend type AnotherObject {
           newInterfaceField: MismatchingInterface
         }
+
+        # Required to prevent unused interface errors
+        type DummyObject implements NewInterface & MismatchingInterface {
+          newField: String
+        }
       `),
     );
-    expect(validateSchema(extendedSchema)).to.containSubset([
+    expect(validateSchema(extendedSchema)).to.deep.equal([
       {
         message:
           'Interface field AnotherInterface.newInterfaceField expects type NewInterface but AnotherObject.newInterfaceField is type MismatchingInterface.',
@@ -1062,10 +1132,14 @@ describe('Type System: Interface fields must have output types', () => {
 
   it('rejects an empty Interface field type', () => {
     const schema = schemaWithInterfaceFieldOfType(undefined);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'The type of BadInterface.badField must be Output Type but got: undefined.',
+      },
+      {
+        message:
+          'The type of BadImplementing.badField must be Output Type but got: undefined.',
       },
     ]);
   });
@@ -1073,12 +1147,30 @@ describe('Type System: Interface fields must have output types', () => {
   notOutputTypes.forEach(type => {
     it(`rejects a non-output type as an Interface field type: ${type}`, () => {
       const schema = schemaWithInterfaceFieldOfType(type);
-      expect(validateSchema(schema)).to.containSubset([
+      expect(validateSchema(schema)).to.deep.equal([
         {
           message: `The type of BadInterface.badField must be Output Type but got: ${type}.`,
         },
+        {
+          message: `The type of BadImplementing.badField must be Output Type but got: ${type}.`,
+        },
       ]);
     });
+  });
+
+  it('rejects a non-type value as an Interface field type', () => {
+    const schema = schemaWithInterfaceFieldOfType(Number);
+    expect(validateSchema(schema)).to.deep.equal([
+      {
+        message: `The type of BadInterface.badField must be Output Type but got: ${Number}.`,
+      },
+      {
+        message: `Expected GraphQL named type but got: ${Number}.`,
+      },
+      {
+        message: `The type of BadImplementing.badField must be Output Type but got: ${Number}.`,
+      },
+    ]);
   });
 
   it('rejects a non-output type as an Interface field type with locations', () => {
@@ -1094,12 +1186,21 @@ describe('Type System: Interface fields must have output types', () => {
       input SomeInputObject {
         foo: String
       }
+
+      type SomeObject implements SomeInterface {
+        field: SomeInputObject
+      }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'The type of SomeInterface.field must be Output Type but got: SomeInputObject.',
         locations: [{ line: 7, column: 16 }],
+      },
+      {
+        message:
+          'The type of SomeObject.field must be Output Type but got: SomeInputObject.',
+        locations: [{ line: 15, column: 16 }],
       },
     ]);
   });
@@ -1114,7 +1215,7 @@ describe('Type System: Interface fields must have output types', () => {
         foo: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Interface SomeInterface must be implemented by at least one Object type.',
@@ -1157,7 +1258,7 @@ describe('Type System: Field arguments must have input types', () => {
 
   it('rejects an empty field arg type', () => {
     const schema = schemaWithArgOfType(undefined);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'The type of BadObject.badField(badArg:) must be Input Type but got: undefined.',
@@ -1168,12 +1269,24 @@ describe('Type System: Field arguments must have input types', () => {
   notInputTypes.forEach(type => {
     it(`rejects a non-input type as a field arg type: ${type}`, () => {
       const schema = schemaWithArgOfType(type);
-      expect(validateSchema(schema)).to.containSubset([
+      expect(validateSchema(schema)).to.deep.equal([
         {
           message: `The type of BadObject.badField(badArg:) must be Input Type but got: ${type}.`,
         },
       ]);
     });
+  });
+
+  it('rejects a non-type value as a field arg type', () => {
+    const schema = schemaWithArgOfType(Number);
+    expect(validateSchema(schema)).to.deep.equal([
+      {
+        message: `The type of BadObject.badField(badArg:) must be Input Type but got: ${Number}.`,
+      },
+      {
+        message: `Expected GraphQL named type but got: ${Number}.`,
+      },
+    ]);
   });
 
   it('rejects a non-input type as a field arg with locations', () => {
@@ -1186,7 +1299,7 @@ describe('Type System: Field arguments must have input types', () => {
         foo: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'The type of Query.test(arg:) must be Input Type but got: SomeObject.',
@@ -1229,7 +1342,7 @@ describe('Type System: Input Object fields must have input types', () => {
 
   it('rejects an empty input field type', () => {
     const schema = schemaWithInputFieldOfType(undefined);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'The type of BadInputObject.badField must be Input Type but got: undefined.',
@@ -1240,12 +1353,24 @@ describe('Type System: Input Object fields must have input types', () => {
   notInputTypes.forEach(type => {
     it(`rejects a non-input type as an input field type: ${type}`, () => {
       const schema = schemaWithInputFieldOfType(type);
-      expect(validateSchema(schema)).to.containSubset([
+      expect(validateSchema(schema)).to.deep.equal([
         {
           message: `The type of BadInputObject.badField must be Input Type but got: ${type}.`,
         },
       ]);
     });
+  });
+
+  it('rejects a non-type value as an input field type', () => {
+    const schema = schemaWithInputFieldOfType(Number);
+    expect(validateSchema(schema)).to.deep.equal([
+      {
+        message: `The type of BadInputObject.badField must be Input Type but got: ${Number}.`,
+      },
+      {
+        message: `Expected GraphQL named type but got: ${Number}.`,
+      },
+    ]);
   });
 
   it('rejects a non-input type as an input object field with locations', () => {
@@ -1262,7 +1387,7 @@ describe('Type System: Input Object fields must have input types', () => {
         bar: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'The type of SomeInputObject.foo must be Input Type but got: SomeObject.',
@@ -1339,7 +1464,7 @@ describe('Objects must adhere to Interface they implement', () => {
         anotherField: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Interface field AnotherInterface.field expected but ' +
@@ -1363,7 +1488,7 @@ describe('Objects must adhere to Interface they implement', () => {
         field(input: String): Int
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Interface field AnotherInterface.field expects type String but ' +
@@ -1390,7 +1515,7 @@ describe('Objects must adhere to Interface they implement', () => {
         field: B
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Interface field AnotherInterface.field expects type A but ' +
@@ -1454,7 +1579,7 @@ describe('Objects must adhere to Interface they implement', () => {
         field: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Interface field argument AnotherInterface.field(input:) expected ' +
@@ -1478,7 +1603,7 @@ describe('Objects must adhere to Interface they implement', () => {
         field(input: Int): String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Interface field argument AnotherInterface.field(input:) expects ' +
@@ -1502,7 +1627,7 @@ describe('Objects must adhere to Interface they implement', () => {
         field(input: Int): Int
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Interface field AnotherInterface.field expects type String but ' +
@@ -1532,7 +1657,7 @@ describe('Objects must adhere to Interface they implement', () => {
         field(input: String, anotherInput: String!): String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Object field argument AnotherObject.field(anotherInput:) is of ' +
@@ -1574,7 +1699,7 @@ describe('Objects must adhere to Interface they implement', () => {
         field: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Interface field AnotherInterface.field expects type [String] ' +
@@ -1598,7 +1723,7 @@ describe('Objects must adhere to Interface they implement', () => {
         field: [String]
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Interface field AnotherInterface.field expects type String but ' +
@@ -1639,7 +1764,7 @@ describe('Objects must adhere to Interface they implement', () => {
         field: String
       }
     `);
-    expect(validateSchema(schema)).to.containSubset([
+    expect(validateSchema(schema)).to.deep.equal([
       {
         message:
           'Interface field AnotherInterface.field expects type String! ' +

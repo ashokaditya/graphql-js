@@ -84,6 +84,10 @@ const TestType = new GraphQLObjectType({
       type: GraphQLString,
       defaultValue: 'Hello World',
     }),
+    fieldWithNonNullableStringInputAndDefaultArgumentValue: fieldWithInputArg({
+      type: GraphQLNonNull(GraphQLString),
+      defaultValue: 'Hello World',
+    }),
     fieldWithNestedInputObject: fieldWithInputArg({
       type: TestNestedInputObject,
       defaultValue: 'Hello World',
@@ -222,6 +226,40 @@ describe('Execute: Handles inputs', () => {
         });
       });
 
+      it('uses undefined when variable not provided', () => {
+        const result = executeQuery(
+          `
+          query q($input: String) {
+            fieldWithNullableStringInput(input: $input)
+          }`,
+          {
+            // Intentionally missing variable values.
+          },
+        );
+
+        expect(result).to.deep.equal({
+          data: {
+            fieldWithNullableStringInput: null,
+          },
+        });
+      });
+
+      it('uses null when variable provided explicit null value', () => {
+        const result = executeQuery(
+          `
+          query q($input: String) {
+            fieldWithNullableStringInput(input: $input)
+          }`,
+          { input: null },
+        );
+
+        expect(result).to.deep.equal({
+          data: {
+            fieldWithNullableStringInput: 'null',
+          },
+        });
+      });
+
       it('uses default value when not provided', () => {
         const result = executeQuery(`
           query ($input: TestInputObject = {a: "foo", b: ["bar"], c: "baz"}) {
@@ -232,6 +270,55 @@ describe('Execute: Handles inputs', () => {
         expect(result).to.deep.equal({
           data: {
             fieldWithObjectInput: "{ a: 'foo', b: [ 'bar' ], c: 'baz' }",
+          },
+        });
+      });
+
+      it('does not use default value when provided', () => {
+        const result = executeQuery(
+          `query q($input: String = "Default value") {
+            fieldWithNullableStringInput(input: $input)
+          }`,
+          { input: 'Variable value' },
+        );
+
+        expect(result).to.deep.equal({
+          data: {
+            fieldWithNullableStringInput: "'Variable value'",
+          },
+        });
+      });
+
+      it('uses explicit null value instead of default value', () => {
+        const result = executeQuery(
+          `
+          query q($input: String = "Default value") {
+            fieldWithNullableStringInput(input: $input)
+          }`,
+          { input: null },
+        );
+
+        expect(result).to.deep.equal({
+          data: {
+            fieldWithNullableStringInput: 'null',
+          },
+        });
+      });
+
+      it('uses null default value when not provided', () => {
+        const result = executeQuery(
+          `
+          query q($input: String = null) {
+            fieldWithNullableStringInput(input: $input)
+          }`,
+          {
+            // Intentionally missing variable values.
+          },
+        );
+
+        expect(result).to.deep.equal({
+          data: {
+            fieldWithNullableStringInput: 'null',
           },
         });
       });
@@ -270,7 +357,6 @@ describe('Execute: Handles inputs', () => {
                 '{"a":"foo","b":"bar","c":null}; ' +
                 'Expected non-nullable type String! not to be null at value.c.',
               locations: [{ line: 2, column: 16 }],
-              path: undefined,
             },
           ],
         });
@@ -286,7 +372,6 @@ describe('Execute: Handles inputs', () => {
                 'Variable "$input" got invalid value "foo bar"; ' +
                 'Expected type TestInputObject to be an object.',
               locations: [{ line: 2, column: 16 }],
-              path: undefined,
             },
           ],
         });
@@ -302,7 +387,6 @@ describe('Execute: Handles inputs', () => {
                 'Variable "$input" got invalid value {"a":"foo","b":"bar"}; ' +
                 'Field value.c of required type String! was not provided.',
               locations: [{ line: 2, column: 16 }],
-              path: undefined,
             },
           ],
         });
@@ -323,14 +407,12 @@ describe('Execute: Handles inputs', () => {
                 'Variable "$input" got invalid value {"na":{"a":"foo"}}; ' +
                 'Field value.na.c of required type String! was not provided.',
               locations: [{ line: 2, column: 18 }],
-              path: undefined,
             },
             {
               message:
                 'Variable "$input" got invalid value {"na":{"a":"foo"}}; ' +
                 'Field value.nb of required type String! was not provided.',
               locations: [{ line: 2, column: 18 }],
-              path: undefined,
             },
           ],
         });
@@ -350,7 +432,6 @@ describe('Execute: Handles inputs', () => {
                 '{"a":"foo","b":"bar","c":"baz","extra":"dog"}; ' +
                 'Field "extra" is not defined by type TestInputObject.',
               locations: [{ line: 2, column: 16 }],
-              path: undefined,
             },
           ],
         });
@@ -474,7 +555,6 @@ describe('Execute: Handles inputs', () => {
             message:
               'Variable "$value" of required type "String!" was not provided.',
             locations: [{ line: 2, column: 16 }],
-            path: undefined,
           },
         ],
       });
@@ -492,10 +572,8 @@ describe('Execute: Handles inputs', () => {
         errors: [
           {
             message:
-              'Variable "$value" got invalid value null; ' +
-              'Expected non-nullable type String! not to be null.',
+              'Variable "$value" of non-null type "String!" must not be null.',
             locations: [{ line: 2, column: 16 }],
-            path: undefined,
           },
         ],
       });
@@ -563,7 +641,6 @@ describe('Execute: Handles inputs', () => {
               'Variable "$value" got invalid value [1,2,3]; Expected type ' +
               'String; String cannot represent an array value: [1,2,3]',
             locations: [{ line: 2, column: 16 }],
-            path: undefined,
           },
         ],
       });
@@ -653,10 +730,8 @@ describe('Execute: Handles inputs', () => {
         errors: [
           {
             message:
-              'Variable "$input" got invalid value null; ' +
-              'Expected non-nullable type [String]! not to be null.',
+              'Variable "$input" of non-null type "[String]!" must not be null.',
             locations: [{ line: 2, column: 16 }],
-            path: undefined,
           },
         ],
       });
@@ -721,7 +796,6 @@ describe('Execute: Handles inputs', () => {
               'Variable "$input" got invalid value ["A",null,"B"]; ' +
               'Expected non-nullable type String! not to be null at value[1].',
             locations: [{ line: 2, column: 16 }],
-            path: undefined,
           },
         ],
       });
@@ -739,10 +813,8 @@ describe('Execute: Handles inputs', () => {
         errors: [
           {
             message:
-              'Variable "$input" got invalid value null; ' +
-              'Expected non-nullable type [String!]! not to be null.',
+              'Variable "$input" of non-null type "[String!]!" must not be null.',
             locations: [{ line: 2, column: 16 }],
-            path: undefined,
           },
         ],
       });
@@ -774,7 +846,6 @@ describe('Execute: Handles inputs', () => {
               'Variable "$input" got invalid value ["A",null,"B"]; ' +
               'Expected non-nullable type String! not to be null at value[1].',
             locations: [{ line: 2, column: 16 }],
-            path: undefined,
           },
         ],
       });
@@ -795,7 +866,6 @@ describe('Execute: Handles inputs', () => {
               'Variable "$input" expected value of type "TestType!" which ' +
               'cannot be used as an input type.',
             locations: [{ line: 2, column: 24 }],
-            path: undefined,
           },
         ],
       });
@@ -816,7 +886,6 @@ describe('Execute: Handles inputs', () => {
               'Variable "$input" expected value of type "UnknownType!" which ' +
               'cannot be used as an input type.',
             locations: [{ line: 2, column: 24 }],
-            path: undefined,
           },
         ],
       });
@@ -866,6 +935,21 @@ describe('Execute: Handles inputs', () => {
             path: ['fieldWithDefaultArgumentValue'],
           },
         ],
+      });
+    });
+
+    it('when no runtime value is provided to a non-null argument', () => {
+      const result = executeQuery(`
+        query optionalVariable($optional: String) {
+          fieldWithNonNullableStringInputAndDefaultArgumentValue(input: $optional)
+        }
+      `);
+
+      expect(result).to.deep.equal({
+        data: {
+          fieldWithNonNullableStringInputAndDefaultArgumentValue:
+            "'Hello World'",
+        },
       });
     });
   });

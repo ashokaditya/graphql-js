@@ -122,23 +122,13 @@ describe('Execute: Handles mutation execution ordering', () => {
 
     const mutationResult = await execute(schema, parse(doc), new Root(6));
 
-    return expect(mutationResult).to.deep.equal({
+    expect(mutationResult).to.deep.equal({
       data: {
-        first: {
-          theNumber: 1,
-        },
-        second: {
-          theNumber: 2,
-        },
-        third: {
-          theNumber: 3,
-        },
-        fourth: {
-          theNumber: 4,
-        },
-        fifth: {
-          theNumber: 5,
-        },
+        first: { theNumber: 1 },
+        second: { theNumber: 2 },
+        third: { theNumber: 3 },
+        fourth: { theNumber: 4 },
+        fifth: { theNumber: 5 },
       },
     });
   });
@@ -167,33 +157,27 @@ describe('Execute: Handles mutation execution ordering', () => {
 
     const result = await execute(schema, parse(doc), new Root(6));
 
-    expect(result.data).to.deep.equal({
-      first: {
-        theNumber: 1,
+    expect(result).to.deep.equal({
+      data: {
+        first: { theNumber: 1 },
+        second: { theNumber: 2 },
+        third: null,
+        fourth: { theNumber: 4 },
+        fifth: { theNumber: 5 },
+        sixth: null,
       },
-      second: {
-        theNumber: 2,
-      },
-      third: null,
-      fourth: {
-        theNumber: 4,
-      },
-      fifth: {
-        theNumber: 5,
-      },
-      sixth: null,
+      errors: [
+        {
+          message: 'Cannot change the number',
+          locations: [{ line: 8, column: 7 }],
+          path: ['third'],
+        },
+        {
+          message: 'Cannot change the number',
+          locations: [{ line: 17, column: 7 }],
+          path: ['sixth'],
+        },
+      ],
     });
-
-    expect(result.errors).to.have.length(2);
-    expect(result.errors).to.containSubset([
-      {
-        message: 'Cannot change the number',
-        locations: [{ line: 8, column: 7 }],
-      },
-      {
-        message: 'Cannot change the number',
-        locations: [{ line: 17, column: 7 }],
-      },
-    ]);
   });
 });

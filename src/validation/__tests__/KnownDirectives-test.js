@@ -17,7 +17,6 @@ function unknownDirective(directiveName, line, column) {
   return {
     message: unknownDirectiveMessage(directiveName),
     locations: [{ line, column }],
-    path: undefined,
   };
 }
 
@@ -25,7 +24,6 @@ function misplacedDirective(directiveName, placement, line, column) {
   return {
     message: misplacedDirectiveMessage(directiveName, placement),
     locations: [{ line, column }],
-    path: undefined,
   };
 }
 
@@ -180,6 +178,8 @@ describe('Validate: Known directives', () => {
         schema @onSchema {
           query: MyQuery
         }
+
+        extend schema @onSchema
       `,
       );
     });
@@ -211,6 +211,8 @@ describe('Validate: Known directives', () => {
         schema @onObject {
           query: MyQuery
         }
+
+        extend schema @onObject
       `,
         [
           misplacedDirective('onInterface', 'OBJECT', 2, 43),
@@ -251,6 +253,7 @@ describe('Validate: Known directives', () => {
             24,
           ),
           misplacedDirective('onObject', 'SCHEMA', 22, 16),
+          misplacedDirective('onObject', 'SCHEMA', 26, 23),
         ],
       );
     });

@@ -245,9 +245,16 @@ export type {
   EnumTypeDefinitionNode,
   EnumValueDefinitionNode,
   InputObjectTypeDefinitionNode,
-  TypeExtensionNode,
-  ObjectTypeExtensionNode,
   DirectiveDefinitionNode,
+  TypeSystemExtensionNode,
+  SchemaExtensionNode,
+  TypeExtensionNode,
+  ScalarTypeExtensionNode,
+  ObjectTypeExtensionNode,
+  InterfaceTypeExtensionNode,
+  UnionTypeExtensionNode,
+  EnumTypeExtensionNode,
+  InputObjectTypeExtensionNode,
   KindEnum,
   TokenKindEnum,
   DirectiveLocationEnum,
@@ -285,7 +292,7 @@ export {
   NoUnusedVariablesRule,
   OverlappingFieldsCanBeMergedRule,
   PossibleFragmentSpreadsRule,
-  ProvidedNonNullArgumentsRule,
+  ProvidedRequiredArgumentsRule,
   ScalarLeafsRule,
   SingleFieldSubscriptionsRule,
   UniqueArgumentNamesRule,
@@ -296,7 +303,6 @@ export {
   UniqueVariableNamesRule,
   ValuesOfCorrectTypeRule,
   VariablesAreInputTypesRule,
-  VariablesDefaultValueAllowedRule,
   VariablesInAllowedPositionRule,
 } from './validation';
 
@@ -314,6 +320,8 @@ export {
   introspectionQuery,
   // Gets the target Operation from a Document
   getOperationAST,
+  // Gets the Type for the target Operation AST.
+  getOperationRootType,
   // Convert a GraphQLSchema to an IntrospectionQuery
   introspectionFromSchema,
   // Build a GraphQLSchema from an introspection result.

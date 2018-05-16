@@ -86,7 +86,7 @@ declare class GraphQLError extends Error {
   /**
    * Extension fields to add to the formatted error.
    */
-  +extensions: ?{ [key: string]: mixed };
+  +extensions: { [key: string]: mixed } | void;
 }
 
 export function GraphQLError( // eslint-disable-line no-redeclare
@@ -100,8 +100,12 @@ export function GraphQLError( // eslint-disable-line no-redeclare
 ) {
   // Compute list of blame nodes.
   const _nodes = Array.isArray(nodes)
-    ? nodes.length !== 0 ? nodes : undefined
-    : nodes ? [nodes] : undefined;
+    ? nodes.length !== 0
+      ? nodes
+      : undefined
+    : nodes
+      ? [nodes]
+      : undefined;
 
   // Compute locations in the source for the given nodes/positions.
   let _source = source;
@@ -135,6 +139,9 @@ export function GraphQLError( // eslint-disable-line no-redeclare
     }, []);
   }
 
+  const _extensions =
+    extensions || (originalError && (originalError: any).extensions);
+
   Object.defineProperties(this, {
     message: {
       value: message,
@@ -151,7 +158,7 @@ export function GraphQLError( // eslint-disable-line no-redeclare
       // By being enumerable, JSON.stringify will include `locations` in the
       // resulting output. This ensures that the simplest possible GraphQL
       // service adheres to the spec.
-      enumerable: true,
+      enumerable: Boolean(_locations),
     },
     path: {
       // Coercing falsey values to undefined ensures they will not be included
@@ -160,7 +167,7 @@ export function GraphQLError( // eslint-disable-line no-redeclare
       // By being enumerable, JSON.stringify will include `path` in the
       // resulting output. This ensures that the simplest possible GraphQL
       // service adheres to the spec.
-      enumerable: true,
+      enumerable: Boolean(path),
     },
     nodes: {
       value: _nodes || undefined,
@@ -175,7 +182,13 @@ export function GraphQLError( // eslint-disable-line no-redeclare
       value: originalError,
     },
     extensions: {
-      value: extensions || (originalError && (originalError: any).extensions),
+      // Coercing falsey values to undefined ensures they will not be included
+      // in JSON.stringify() when not provided.
+      value: _extensions || undefined,
+      // By being enumerable, JSON.stringify will include `path` in the
+      // resulting output. This ensures that the simplest possible GraphQL
+      // service adheres to the spec.
+      enumerable: Boolean(_extensions),
     },
   });
 

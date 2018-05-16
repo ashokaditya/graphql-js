@@ -7,7 +7,6 @@
 
 import { expect } from 'chai';
 import { parse } from '../../language';
-import { formatError } from '../../error';
 import { validate } from '../validate';
 import {
   GraphQLSchema,
@@ -183,6 +182,7 @@ const ComplexInput = new GraphQLInputObjectType({
   name: 'ComplexInput',
   fields: {
     requiredField: { type: GraphQLNonNull(GraphQLBoolean) },
+    nonNullField: { type: GraphQLNonNull(GraphQLBoolean), defaultValue: false },
     intField: { type: GraphQLInt },
     stringField: { type: GraphQLString },
     booleanField: { type: GraphQLBoolean },
@@ -245,6 +245,12 @@ const ComplicatedArgs = new GraphQLObjectType({
       args: {
         req1: { type: GraphQLNonNull(GraphQLInt) },
         req2: { type: GraphQLNonNull(GraphQLInt) },
+      },
+    },
+    nonNullFieldWithDefault: {
+      type: GraphQLString,
+      args: {
+        arg: { type: GraphQLNonNull(GraphQLInt), defaultValue: 0 },
       },
     },
     multipleOpts: {
@@ -423,7 +429,7 @@ function expectValid(schema, rules, queryString) {
 function expectInvalid(schema, rules, queryString, expectedErrors) {
   const errors = validate(schema, parse(queryString), rules);
   expect(errors).to.have.length.of.at.least(1, 'Should not validate');
-  expect(errors.map(formatError)).to.deep.equal(expectedErrors);
+  expect(errors).to.deep.equal(expectedErrors);
   return errors;
 }
 

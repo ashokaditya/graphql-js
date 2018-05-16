@@ -19,6 +19,7 @@ import promiseReduce from '../jsutils/promiseReduce';
 import type { ObjMap } from '../jsutils/ObjMap';
 import type { MaybePromise } from '../jsutils/MaybePromise';
 
+import { getOperationRootType } from '../utilities/getOperationRootType';
 import { typeFromAST } from '../utilities/typeFromAST';
 import { Kind } from '../language/kinds';
 import {
@@ -193,9 +194,9 @@ function executeImpl(
   // If arguments are missing or incorrect, throw an error.
   assertValidExecutionArguments(schema, document, variableValues);
 
-  // If a valid context cannot be created due to incorrect arguments,
+  // If a valid execution context cannot be created due to incorrect arguments,
   // a "Response" with only errors is returned.
-  const context = buildExecutionContext(
+  const exeContext = buildExecutionContext(
     schema,
     document,
     rootValue,
@@ -206,8 +207,8 @@ function executeImpl(
   );
 
   // Return early errors if execution context failed.
-  if (Array.isArray(context)) {
-    return { errors: context };
+  if (Array.isArray(exeContext)) {
+    return { errors: exeContext };
   }
 
   // Return a Promise that will eventually resolve to the data described by
@@ -217,8 +218,8 @@ function executeImpl(
   // field and its descendants will be omitted, and sibling fields will still
   // be executed. An execution which encounters errors will still result in a
   // resolved Promise.
-  const data = executeOperation(context, context.operation, rootValue);
-  return buildResponse(context, data);
+  const data = executeOperation(exeContext, exeContext.operation, rootValue);
+  return buildResponse(exeContext, data);
 }
 
 /**
@@ -226,15 +227,15 @@ function executeImpl(
  * response defined by the "Response" section of the GraphQL specification.
  */
 function buildResponse(
-  context: ExecutionContext,
+  exeContext: ExecutionContext,
   data: MaybePromise<ObjMap<mixed> | null>,
 ) {
   if (isPromise(data)) {
-    return data.then(resolved => buildResponse(context, resolved));
+    return data.then(resolved => buildResponse(exeContext, resolved));
   }
-  return context.errors.length === 0
+  return exeContext.errors.length === 0
     ? { data }
-    : { errors: context.errors, data };
+    : { errors: exeContext.errors, data };
 }
 
 /**
@@ -416,47 +417,6 @@ function executeOperation(
 }
 
 /**
- * Extracts the root type of the operation from the schema.
- */
-export function getOperationRootType(
-  schema: GraphQLSchema,
-  operation: OperationDefinitionNode,
-): GraphQLObjectType {
-  switch (operation.operation) {
-    case 'query':
-      const queryType = schema.getQueryType();
-      if (!queryType) {
-        throw new GraphQLError(
-          'Schema does not define the required query root type.',
-          [operation],
-        );
-      }
-      return queryType;
-    case 'mutation':
-      const mutationType = schema.getMutationType();
-      if (!mutationType) {
-        throw new GraphQLError('Schema is not configured for mutations.', [
-          operation,
-        ]);
-      }
-      return mutationType;
-    case 'subscription':
-      const subscriptionType = schema.getSubscriptionType();
-      if (!subscriptionType) {
-        throw new GraphQLError('Schema is not configured for subscriptions.', [
-          operation,
-        ]);
-      }
-      return subscriptionType;
-    default:
-      throw new GraphQLError(
-        'Can only execute queries, mutations and subscriptions.',
-        [operation],
-      );
-  }
-}
-
-/**
  * Implements the "Evaluating selection sets" section of the spec
  * for "write" mode.
  */
@@ -506,9 +466,11 @@ function executeFields(
   path: ResponsePath | void,
   fields: ObjMap<Array<FieldNode>>,
 ): MaybePromise<ObjMap<mixed>> {
+  const results = Object.create(null);
   let containsPromise = false;
 
-  const finalResults = Object.keys(fields).reduce((results, responseName) => {
+  for (let i = 0, keys = Object.keys(fields); i < keys.length; ++i) {
+    const responseName = keys[i];
     const fieldNodes = fields[responseName];
     const fieldPath = addPath(path, responseName);
     const result = resolveField(
@@ -518,26 +480,24 @@ function executeFields(
       fieldNodes,
       fieldPath,
     );
-    if (result === undefined) {
-      return results;
+
+    if (result !== undefined) {
+      results[responseName] = result;
+      if (!containsPromise && isPromise(result)) {
+        containsPromise = true;
+      }
     }
-    results[responseName] = result;
-    if (!containsPromise && isPromise(result)) {
-      containsPromise = true;
-    }
-    return results;
-  }, Object.create(null));
+  }
 
   // If there are no promises, we can just return the object
   if (!containsPromise) {
-    return finalResults;
+    return results;
   }
 
-  // Otherwise, results is a map from field name to the result
-  // of resolving that field, which is possibly a promise. Return
-  // a promise that will return this same map, but with any
-  // promises replaced with the values they resolved to.
-  return promiseForObject(finalResults);
+  // Otherwise, results is a map from field name to the result of resolving that
+  // field, which is possibly a promise. Return a promise that will return this
+  // same map, but with any promises replaced with the values they resolved to.
+  return promiseForObject(results);
 }
 
 /**
@@ -767,9 +727,9 @@ export function resolveFieldValueOrError<TSource>(
     // The resolve function's optional third argument is a context value that
     // is provided to every resolve function within an execution. It is commonly
     // used to represent an authenticated user, or request-specific caches.
-    const context = exeContext.contextValue;
+    const contextValue = exeContext.contextValue;
 
-    const result = resolveFn(source, args, context, info);
+    const result = resolveFn(source, args, contextValue, info);
     return isPromise(result) ? result.then(undefined, asErrorInstance) : result;
   } catch (error) {
     return asErrorInstance(error);
@@ -792,87 +752,53 @@ function completeValueCatchingError(
   path: ResponsePath,
   result: mixed,
 ): MaybePromise<mixed> {
-  // If the field type is non-nullable, then it is resolved without any
-  // protection from errors, however it still properly locates the error.
-  if (isNonNullType(returnType)) {
-    return completeValueWithLocatedError(
-      exeContext,
-      returnType,
-      fieldNodes,
-      info,
-      path,
-      result,
-    );
-  }
-
-  // Otherwise, error protection is applied, logging the error and resolving
-  // a null value for this field if one is encountered.
   try {
-    const completed = completeValueWithLocatedError(
-      exeContext,
-      returnType,
-      fieldNodes,
-      info,
-      path,
-      result,
-    );
+    let completed;
+    if (isPromise(result)) {
+      completed = result.then(resolved =>
+        completeValue(exeContext, returnType, fieldNodes, info, path, resolved),
+      );
+    } else {
+      completed = completeValue(
+        exeContext,
+        returnType,
+        fieldNodes,
+        info,
+        path,
+        result,
+      );
+    }
+
     if (isPromise(completed)) {
-      // If `completeValueWithLocatedError` returned a rejected promise, log
-      // the rejection error and resolve to null.
       // Note: we don't rely on a `catch` method, but we do expect "thenable"
       // to take a second callback for the error case.
-      return completed.then(undefined, error => {
-        exeContext.errors.push(error);
-        return Promise.resolve(null);
-      });
-    }
-    return completed;
-  } catch (error) {
-    // If `completeValueWithLocatedError` returned abruptly (threw an error),
-    // log the error and return null.
-    exeContext.errors.push(error);
-    return null;
-  }
-}
-
-// This is a small wrapper around completeValue which annotates errors with
-// location information.
-function completeValueWithLocatedError(
-  exeContext: ExecutionContext,
-  returnType: GraphQLOutputType,
-  fieldNodes: $ReadOnlyArray<FieldNode>,
-  info: GraphQLResolveInfo,
-  path: ResponsePath,
-  result: mixed,
-): MaybePromise<mixed> {
-  try {
-    const completed = completeValue(
-      exeContext,
-      returnType,
-      fieldNodes,
-      info,
-      path,
-      result,
-    );
-    if (isPromise(completed)) {
       return completed.then(undefined, error =>
-        Promise.reject(
-          locatedError(
-            asErrorInstance(error),
-            fieldNodes,
-            responsePathAsArray(path),
-          ),
-        ),
+        handleFieldError(error, fieldNodes, path, returnType, exeContext),
       );
     }
     return completed;
   } catch (error) {
-    throw locatedError(
-      asErrorInstance(error),
-      fieldNodes,
-      responsePathAsArray(path),
-    );
+    return handleFieldError(error, fieldNodes, path, returnType, exeContext);
   }
+}
+
+function handleFieldError(rawError, fieldNodes, path, returnType, exeContext) {
+  const error = locatedError(
+    asErrorInstance(rawError),
+    fieldNodes,
+    responsePathAsArray(path),
+  );
+
+  // If the field type is non-nullable, then it is resolved without any
+  // protection from errors, however it still properly locates the error.
+  if (isNonNullType(returnType)) {
+    throw error;
+  }
+
+  // Otherwise, error protection is applied, logging the error and resolving
+  // a null value for this field if one is encountered.
+  exeContext.errors.push(error);
+  return null;
 }
 
 /**
@@ -904,13 +830,6 @@ function completeValue(
   path: ResponsePath,
   result: mixed,
 ): MaybePromise<mixed> {
-  // If result is a Promise, apply-lift over completeValue.
-  if (isPromise(result)) {
-    return result.then(resolved =>
-      completeValue(exeContext, returnType, fieldNodes, info, path, resolved),
-    );
-  }
-
   // If result is an Error, throw a located error.
   if (result instanceof Error) {
     throw result;
@@ -1215,7 +1134,7 @@ function collectAndExecuteSubfields(
 }
 
 /**
- * A memoized collection of relevant subfields in the context of the return
+ * A memoized collection of relevant subfields with regard to the return
  * type. Memoizing ensures the subfields are not repeatedly calculated, which
  * saves overhead when resolving lists of values.
  */
@@ -1254,7 +1173,7 @@ function _collectSubfields(
  */
 function defaultResolveTypeFn(
   value: mixed,
-  context: mixed,
+  contextValue: mixed,
   info: GraphQLResolveInfo,
   abstractType: GraphQLAbstractType,
 ): MaybePromise<?GraphQLObjectType | string> {
@@ -1275,7 +1194,7 @@ function defaultResolveTypeFn(
     const type = possibleTypes[i];
 
     if (type.isTypeOf) {
-      const isTypeOfResult = type.isTypeOf(value, context, info);
+      const isTypeOfResult = type.isTypeOf(value, contextValue, info);
 
       if (isPromise(isTypeOfResult)) {
         promisedIsTypeOfResults[i] = isTypeOfResult;
@@ -1300,19 +1219,19 @@ function defaultResolveTypeFn(
  * If a resolve function is not given, then a default resolve behavior is used
  * which takes the property of the source object of the same name as the field
  * and returns it as the result, or if it's a function, returns the result
- * of calling that function while passing along args and context.
+ * of calling that function while passing along args and context value.
  */
 export const defaultFieldResolver: GraphQLFieldResolver<any, *> = function(
   source,
   args,
-  context,
+  contextValue,
   info,
 ) {
   // ensure source is a value for which property access is acceptable.
   if (typeof source === 'object' || typeof source === 'function') {
     const property = source[info.fieldName];
     if (typeof property === 'function') {
-      return source[info.fieldName](args, context, info);
+      return source[info.fieldName](args, contextValue, info);
     }
     return property;
   }
