@@ -9,26 +9,35 @@ import { describe, it } from 'mocha';
 import { expect } from 'chai';
 import dedent from '../../jsutils/dedent';
 import { extendSchema } from '../extendSchema';
-import { parse, print } from '../../language';
+import { parse, print, DirectiveLocation } from '../../language';
 import { printSchema } from '../schemaPrinter';
 import { Kind } from '../../language/kinds';
 import { graphqlSync } from '../../';
 import {
   GraphQLSchema,
+  GraphQLScalarType,
   GraphQLObjectType,
   GraphQLInterfaceType,
   GraphQLUnionType,
   GraphQLID,
   GraphQLString,
   GraphQLEnumType,
+  GraphQLInputObjectType,
   GraphQLNonNull,
   GraphQLList,
+  GraphQLDirective,
   isScalarType,
   isNonNullType,
   validateSchema,
+  specifiedDirectives,
 } from '../../type';
 
 // Test schema.
+const SomeScalarType = new GraphQLScalarType({
+  name: 'SomeScalar',
+  serialize: x => x,
+});
+
 const SomeInterfaceType = new GraphQLInterfaceType({
   name: 'SomeInterface',
   fields: () => ({
@@ -77,20 +86,53 @@ const SomeEnumType = new GraphQLEnumType({
   },
 });
 
+const SomeInputType = new GraphQLInputObjectType({
+  name: 'SomeInput',
+  fields: () => ({
+    fooArg: { type: GraphQLString },
+  }),
+});
+
 const testSchema = new GraphQLSchema({
   query: new GraphQLObjectType({
     name: 'Query',
     fields: () => ({
       foo: { type: FooType },
+      someScalar: { type: SomeScalarType },
       someUnion: { type: SomeUnionType },
       someEnum: { type: SomeEnumType },
       someInterface: {
         args: { id: { type: GraphQLNonNull(GraphQLID) } },
         type: SomeInterfaceType,
       },
+      someInput: {
+        args: { input: { type: SomeInputType } },
+        type: GraphQLString,
+      },
     }),
   }),
   types: [FooType, BarType],
+  directives: specifiedDirectives.concat([
+    new GraphQLDirective({
+      name: 'foo',
+      args: {
+        input: { type: SomeInputType },
+      },
+      locations: [
+        DirectiveLocation.SCHEMA,
+        DirectiveLocation.SCALAR,
+        DirectiveLocation.OBJECT,
+        DirectiveLocation.FIELD_DEFINITION,
+        DirectiveLocation.ARGUMENT_DEFINITION,
+        DirectiveLocation.INTERFACE,
+        DirectiveLocation.UNION,
+        DirectiveLocation.ENUM,
+        DirectiveLocation.ENUM_VALUE,
+        DirectiveLocation.INPUT_OBJECT,
+        DirectiveLocation.INPUT_FIELD_DEFINITION,
+      ],
+    }),
+  ]),
 });
 
 function extendTestSchema(sdl, options) {
@@ -139,7 +181,9 @@ describe('extendSchema', () => {
     const result = graphqlSync(extendedSchema, '{ newField }', {
       newField: 123,
     });
-    expect(result.data).to.deep.equal({ newField: '123' });
+    expect(result).to.deep.equal({
+      data: { newField: '123' },
+    });
   });
 
   it('can describe the extended fields', () => {
@@ -198,12 +242,97 @@ describe('extendSchema', () => {
         newField: String
       }
     `);
+
+    const fooType = extendedSchema.getType('Foo');
+    const fooField = extendedSchema.getType('Query').getFields()['foo'];
+    expect(fooField.type).to.equal(fooType);
+  });
+
+  it('extends enums by adding new values', () => {
+    const extendedSchema = extendTestSchema(`
+      extend enum SomeEnum {
+        NEW_ENUM
+      }
+    `);
+    expect(printTestSchemaChanges(extendedSchema)).to.equal(dedent`
+      enum SomeEnum {
+        ONE
+        TWO
+        NEW_ENUM
+      }
+    `);
+
+    const someEnumType = extendedSchema.getType('SomeEnum');
+    const enumField = extendedSchema.getType('Query').getFields()['someEnum'];
+    expect(enumField.type).to.equal(someEnumType);
+  });
+
+  it('extends unions by adding new types', () => {
+    const extendedSchema = extendTestSchema(`
+      extend union SomeUnion = Bar
+    `);
+    expect(printTestSchemaChanges(extendedSchema)).to.equal(dedent`
+      union SomeUnion = Foo | Biz | Bar
+    `);
+
+    const someUnionType = extendedSchema.getType('SomeUnion');
+    const unionField = extendedSchema.getType('Query').getFields()['someUnion'];
+    expect(unionField.type).to.equal(someUnionType);
+  });
+
+  it('extends inputs by adding new fields', () => {
+    const extendedSchema = extendTestSchema(`
+      extend input SomeInput {
+        newField: String
+      }
+    `);
+    expect(printTestSchemaChanges(extendedSchema)).to.equal(dedent`
+      input SomeInput {
+        fooArg: String
+        newField: String
+      }
+    `);
+
+    const someInputType = extendedSchema.getType('SomeInput');
+    const inputField = extendedSchema.getType('Query').getFields()['someInput'];
+    expect(inputField.args[0].type).to.equal(someInputType);
+
+    const fooDirective = extendedSchema.getDirective('foo');
+    expect(fooDirective.args[0].type).to.equal(someInputType);
+  });
+
+  it('extends scalars by adding new directives', () => {
+    const extendedSchema = extendTestSchema(`
+      extend scalar SomeScalar @foo
+    `);
+
+    const someScalar = extendedSchema.getType('SomeScalar');
+    expect(someScalar.extensionASTNodes).to.have.lengthOf(1);
+    expect(print(someScalar.extensionASTNodes[0])).to.equal(
+      'extend scalar SomeScalar @foo',
+    );
   });
 
   it('correctly assign AST nodes to new and extended types', () => {
     const extendedSchema = extendTestSchema(`
       extend type Query {
         newField(testArg: TestInput): TestEnum
+      }
+
+      extend scalar SomeScalar @foo
+
+      extend enum SomeEnum {
+        NEW_VALUE
+      }
+
+      extend union SomeUnion = Bar
+
+      extend input SomeInput {
+        newField: String
+      }
+
+      extend interface SomeInterface {
+        newField: String
       }
 
       enum TestEnum {
@@ -214,9 +343,25 @@ describe('extendSchema', () => {
         testInputField: TestEnum
       }
     `);
-    const secondExtensionAST = parse(`
+    const ast = parse(`
       extend type Query {
         oneMoreNewField: TestUnion
+      }
+
+      extend scalar SomeScalar @test
+
+      extend enum SomeEnum {
+        ONE_MORE_NEW_VALUE
+      }
+
+      extend union SomeUnion = TestType
+
+      extend input SomeInput {
+        oneMoreNewField: String
+      }
+
+      extend interface SomeInterface {
+        oneMoreNewField: String
       }
 
       union TestUnion = TestType
@@ -229,14 +374,17 @@ describe('extendSchema', () => {
         interfaceField: String
       }
 
-      directive @test(arg: Int) on FIELD
+      directive @test(arg: Int) on FIELD | SCALAR
     `);
-    const extendedTwiceSchema = extendSchema(
-      extendedSchema,
-      secondExtensionAST,
-    );
+    const extendedTwiceSchema = extendSchema(extendedSchema, ast);
 
     const query = extendedTwiceSchema.getType('Query');
+    const someScalar = extendedTwiceSchema.getType('SomeScalar');
+    const someEnum = extendedTwiceSchema.getType('SomeEnum');
+    const someUnion = extendedTwiceSchema.getType('SomeUnion');
+    const someInput = extendedTwiceSchema.getType('SomeInput');
+    const someInterface = extendedTwiceSchema.getType('SomeInterface');
+
     const testInput = extendedTwiceSchema.getType('TestInput');
     const testEnum = extendedTwiceSchema.getType('TestEnum');
     const testUnion = extendedTwiceSchema.getType('TestUnion');
@@ -245,12 +393,27 @@ describe('extendSchema', () => {
     const testDirective = extendedTwiceSchema.getDirective('test');
 
     expect(query.extensionASTNodes).to.have.lengthOf(2);
+    expect(someScalar.extensionASTNodes).to.have.lengthOf(2);
+    expect(someEnum.extensionASTNodes).to.have.lengthOf(2);
+    expect(someUnion.extensionASTNodes).to.have.lengthOf(2);
+    expect(someInput.extensionASTNodes).to.have.lengthOf(2);
+    expect(someInterface.extensionASTNodes).to.have.lengthOf(2);
+
     expect(testType.extensionASTNodes).to.equal(undefined);
+    expect(testEnum.extensionASTNodes).to.equal(undefined);
+    expect(testUnion.extensionASTNodes).to.equal(undefined);
+    expect(testInput.extensionASTNodes).to.equal(undefined);
+    expect(testInterface.extensionASTNodes).to.equal(undefined);
 
     const restoredExtensionAST = {
       kind: Kind.DOCUMENT,
       definitions: [
         ...query.extensionASTNodes,
+        ...someScalar.extensionASTNodes,
+        ...someEnum.extensionASTNodes,
+        ...someUnion.extensionASTNodes,
+        ...someInput.extensionASTNodes,
+        ...someInterface.extensionASTNodes,
         testInput.astNode,
         testEnum.astNode,
         testUnion.astNode,
@@ -271,6 +434,23 @@ describe('extendSchema', () => {
     expect(print(query.getFields().oneMoreNewField.astNode)).to.equal(
       'oneMoreNewField: TestUnion',
     );
+    expect(print(someEnum.getValue('NEW_VALUE').astNode)).to.equal('NEW_VALUE');
+    expect(print(someEnum.getValue('ONE_MORE_NEW_VALUE').astNode)).to.equal(
+      'ONE_MORE_NEW_VALUE',
+    );
+    expect(print(someInput.getFields().newField.astNode)).to.equal(
+      'newField: String',
+    );
+    expect(print(someInput.getFields().oneMoreNewField.astNode)).to.equal(
+      'oneMoreNewField: String',
+    );
+    expect(print(someInterface.getFields().newField.astNode)).to.equal(
+      'newField: String',
+    );
+    expect(print(someInterface.getFields().oneMoreNewField.astNode)).to.equal(
+      'oneMoreNewField: String',
+    );
+
     expect(print(testInput.getFields().testInputField.astNode)).to.equal(
       'testInputField: TestEnum',
     );
@@ -321,7 +501,21 @@ describe('extendSchema', () => {
     expect(deprecatedFieldDef.deprecationReason).to.equal('not used anymore');
   });
 
-  it('extends objects by adding new unused types', () => {
+  it('extends enums with deprecated values', () => {
+    const extendedSchema = extendTestSchema(`
+      extend enum SomeEnum {
+        DEPRECATED @deprecated(reason: "do not use")
+      }
+    `);
+
+    const deprecatedEnumDef = extendedSchema
+      .getType('SomeEnum')
+      .getValue('DEPRECATED');
+    expect(deprecatedEnumDef.isDeprecated).to.equal(true);
+    expect(deprecatedEnumDef.deprecationReason).to.equal('do not use');
+  });
+
+  it('adds new unused object type', () => {
     const extendedSchema = extendTestSchema(`
       type Unused {
         someField: String
@@ -332,6 +526,52 @@ describe('extendSchema', () => {
       type Unused {
         someField: String
       }
+    `);
+  });
+
+  it('adds new unused enum type', () => {
+    const extendedSchema = extendTestSchema(`
+      enum UnusedEnum {
+        SOME
+      }
+    `);
+    expect(extendedSchema).to.not.equal(testSchema);
+    expect(printTestSchemaChanges(extendedSchema)).to.equal(dedent`
+      enum UnusedEnum {
+        SOME
+      }
+    `);
+  });
+
+  it('adds new unused input object type', () => {
+    const extendedSchema = extendTestSchema(`
+      input UnusedInput {
+        someInput: String
+      }
+    `);
+    expect(extendedSchema).to.not.equal(testSchema);
+    expect(printTestSchemaChanges(extendedSchema)).to.equal(dedent`
+      input UnusedInput {
+        someInput: String
+      }
+    `);
+  });
+
+  it('adds new union using new object type', () => {
+    const extendedSchema = extendTestSchema(`
+      type DummyUnionMember {
+        someField: String
+      }
+
+      union UnusedUnion = DummyUnionMember
+    `);
+    expect(extendedSchema).to.not.equal(testSchema);
+    expect(printTestSchemaChanges(extendedSchema)).to.equal(dedent`
+      type DummyUnionMember {
+        someField: String
+      }
+
+      union UnusedUnion = DummyUnionMember
     `);
   });
 
@@ -487,7 +727,7 @@ describe('extendSchema', () => {
     `);
   });
 
-  it('extends objects multiple times', () => {
+  it('extends different types multiple times', () => {
     const extendedSchema = extendTestSchema(`
       extend type Biz implements NewInterface {
         buzz: String
@@ -507,6 +747,34 @@ describe('extendSchema', () => {
       interface NewInterface {
         buzz: String
       }
+
+      extend enum SomeEnum {
+        THREE
+      }
+
+      extend enum SomeEnum {
+        FOUR
+      }
+
+      extend union SomeUnion = Boo
+
+      extend union SomeUnion = Joo
+
+      type Boo {
+        fieldA: String
+      }
+
+      type Joo {
+        fieldB: String
+      }
+
+      extend input SomeInput {
+        fieldA: String
+      }
+
+      extend input SomeInput {
+        fieldB: String
+      }
     `);
     expect(printTestSchemaChanges(extendedSchema)).to.equal(dedent`
       type Biz implements NewInterface & SomeInterface {
@@ -518,9 +786,32 @@ describe('extendSchema', () => {
         newFieldB: Float
       }
 
+      type Boo {
+        fieldA: String
+      }
+
+      type Joo {
+        fieldB: String
+      }
+
       interface NewInterface {
         buzz: String
       }
+
+      enum SomeEnum {
+        ONE
+        TWO
+        THREE
+        FOUR
+      }
+
+      input SomeInput {
+        fooArg: String
+        fieldA: String
+        fieldB: String
+      }
+
+      union SomeUnion = Foo | Biz | Boo | Joo
     `);
   });
 
@@ -715,11 +1006,11 @@ describe('extendSchema', () => {
   });
 
   it('does not allow replacing a default directive', () => {
-    const ast = parse(`
+    const sdl = `
       directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD
-    `);
+    `;
 
-    expect(() => extendSchema(testSchema, ast)).to.throw(
+    expect(() => extendTestSchema(sdl)).to.throw(
       'Directive "include" already exists in the schema. It cannot be ' +
         'redefined.',
     );
@@ -740,63 +1031,150 @@ describe('extendSchema', () => {
   });
 
   it('does not allow replacing an existing type', () => {
-    const ast = parse(`
-      type Bar {
-        baz: String
-      }
-    `);
-    expect(() => extendSchema(testSchema, ast)).to.throw(
-      'Type "Bar" already exists in the schema. It cannot also be defined ' +
-        'in this type definition.',
+    const existingTypeError = type =>
+      `Type "${type}" already exists in the schema.` +
+      ' It cannot also be defined in this type definition.';
+
+    const typeSDL = `
+      type Bar
+    `;
+    expect(() => extendTestSchema(typeSDL)).to.throw(existingTypeError('Bar'));
+
+    const interfaceSDL = `
+      interface SomeInterface
+    `;
+    expect(() => extendTestSchema(interfaceSDL)).to.throw(
+      existingTypeError('SomeInterface'),
+    );
+
+    const enumSDL = `
+      enum SomeEnum
+    `;
+    expect(() => extendTestSchema(enumSDL)).to.throw(
+      existingTypeError('SomeEnum'),
+    );
+
+    const unionSDL = `
+      union SomeUnion
+    `;
+    expect(() => extendTestSchema(unionSDL)).to.throw(
+      existingTypeError('SomeUnion'),
+    );
+
+    const inputSDL = `
+      input SomeInput
+    `;
+    expect(() => extendTestSchema(inputSDL)).to.throw(
+      existingTypeError('SomeInput'),
     );
   });
 
   it('does not allow replacing an existing field', () => {
-    const ast = parse(`
+    const existingFieldError = (type, field) =>
+      `Field "${type}.${field}" already exists in the schema.` +
+      ' It cannot also be defined in this type extension.';
+
+    const typeSDL = `
       extend type Bar {
         foo: Foo
       }
-    `);
-    expect(() => extendSchema(testSchema, ast)).to.throw(
-      'Field "Bar.foo" already exists in the schema. It cannot also be ' +
-        'defined in this type extension.',
+    `;
+    expect(() => extendTestSchema(typeSDL)).to.throw(
+      existingFieldError('Bar', 'foo'),
+    );
+
+    const interfaceSDL = `
+      extend interface SomeInterface {
+        some: Foo
+      }
+    `;
+    expect(() => extendTestSchema(interfaceSDL)).to.throw(
+      existingFieldError('SomeInterface', 'some'),
+    );
+
+    const inputSDL = `
+      extend input SomeInput {
+        fooArg: String
+      }
+    `;
+    expect(() => extendTestSchema(inputSDL)).to.throw(
+      existingFieldError('SomeInput', 'fooArg'),
+    );
+  });
+
+  it('does not allow replacing an existing enum value', () => {
+    const sdl = `
+      extend enum SomeEnum {
+        ONE
+      }
+    `;
+    expect(() => extendTestSchema(sdl)).to.throw(
+      'Enum value "SomeEnum.ONE" already exists in the schema. It cannot ' +
+        'also be defined in this type extension.',
     );
   });
 
   it('does not allow referencing an unknown type', () => {
-    const ast = parse(`
+    const unknownTypeError =
+      'Unknown type: "Quix". Ensure that this type exists either in the ' +
+      'original schema, or is added in a type definition.';
+
+    const typeSDL = `
       extend type Bar {
         quix: Quix
       }
-    `);
-    expect(() => extendSchema(testSchema, ast)).to.throw(
-      'Unknown type: "Quix". Ensure that this type exists either in the ' +
-        'original schema, or is added in a type definition.',
-    );
+    `;
+    expect(() => extendTestSchema(typeSDL)).to.throw(unknownTypeError);
+
+    const intefaceSDL = `
+      extend interface SomeInterface {
+        quix: Quix
+      }
+    `;
+    expect(() => extendTestSchema(intefaceSDL)).to.throw(unknownTypeError);
+
+    const unionSDL = `
+      extend union SomeUnion = Quix
+    `;
+    expect(() => extendTestSchema(unionSDL)).to.throw(unknownTypeError);
+
+    const inputSDL = `
+      extend input SomeInput {
+        quix: Quix
+      }
+    `;
+    expect(() => extendTestSchema(inputSDL)).to.throw(unknownTypeError);
   });
 
   it('does not allow extending an unknown type', () => {
-    const ast = parse(`
-      extend type UnknownType {
-        baz: String
-      }
-    `);
-    expect(() => extendSchema(testSchema, ast)).to.throw(
+    const unknownTypeError =
       'Cannot extend type "UnknownType" because it does not exist in the ' +
-        'existing schema.',
-    );
-  });
+      'existing schema.';
 
-  it('does not allow extending an unknown interface type', () => {
-    const ast = parse(`
-      extend interface UnknownInterfaceType {
-        baz: String
-      }
-    `);
-    expect(() => extendSchema(testSchema, ast)).to.throw(
-      'Cannot extend type "UnknownInterfaceType" because it does not ' +
-        'exist in the existing schema.',
-    );
+    const typeSDL = `
+      extend type UnknownType @foo
+    `;
+    expect(() => extendTestSchema(typeSDL)).to.throw(unknownTypeError);
+
+    const intefaceSDL = `
+      extend interface UnknownType @foo
+    `;
+    expect(() => extendTestSchema(intefaceSDL)).to.throw(unknownTypeError);
+
+    const enumSDL = `
+      extend enum UnknownType @foo
+    `;
+    expect(() => extendTestSchema(enumSDL)).to.throw(unknownTypeError);
+
+    const unionSDL = `
+      extend union UnknownType @foo
+    `;
+    expect(() => extendTestSchema(unionSDL)).to.throw(unknownTypeError);
+
+    const inputSDL = `
+      extend input UnknownType @foo
+    `;
+    expect(() => extendTestSchema(inputSDL)).to.throw(unknownTypeError);
   });
 
   it('maintains configuration of the original schema object', () => {
@@ -815,7 +1193,7 @@ describe('extendSchema', () => {
       }
     `);
     const schema = extendSchema(testSchemaWithLegacyNames, ast);
-    expect(schema.__allowedLegacyNames).to.deep.equal(['__badName']);
+    expect(schema).to.have.deep.property('__allowedLegacyNames', ['__badName']);
   });
 
   it('adds to the configuration of the original schema object', () => {
@@ -836,60 +1214,61 @@ describe('extendSchema', () => {
     const schema = extendSchema(testSchemaWithLegacyNames, ast, {
       allowedLegacyNames: ['__anotherBadName'],
     });
-    expect(schema.__allowedLegacyNames).to.deep.equal([
+    expect(schema).to.have.deep.property('__allowedLegacyNames', [
       '__badName',
       '__anotherBadName',
     ]);
   });
 
-  describe('does not allow extending a non-object type', () => {
-    it('not an object', () => {
-      const ast = parse(`
-        extend type SomeInterface {
-          baz: String
-        }
-      `);
-      expect(() => extendSchema(testSchema, ast)).to.throw(
-        'Cannot extend non-object type "SomeInterface".',
-      );
-    });
+  describe('does not allow extending a mismatch type', () => {
+    const typeSDL = `
+      extend type SomeInterface @foo
+    `;
+    expect(() => extendTestSchema(typeSDL)).to.throw(
+      'Cannot extend non-object type "SomeInterface".',
+    );
 
-    it('not an interface', () => {
-      const ast = parse(`
-        extend interface Foo {
-          baz: String
-        }
-      `);
-      expect(() => extendSchema(testSchema, ast)).to.throw(
-        'Cannot extend non-interface type "Foo".',
-      );
-    });
+    const intefaceSDL = `
+      extend interface Foo @foo
+    `;
+    expect(() => extendTestSchema(intefaceSDL)).to.throw(
+      'Cannot extend non-interface type "Foo".',
+    );
 
-    it('not a scalar', () => {
-      const ast = parse(`
-        extend type String {
-          baz: String
-        }
-      `);
-      expect(() => extendSchema(testSchema, ast)).to.throw(
-        'Cannot extend non-object type "String".',
-      );
-    });
+    const enumSDL = `
+      extend enum Foo @foo
+    `;
+    expect(() => extendTestSchema(enumSDL)).to.throw(
+      'Cannot extend non-enum type "Foo".',
+    );
+
+    const unionSDL = `
+      extend union Foo @foo
+    `;
+    expect(() => extendTestSchema(unionSDL)).to.throw(
+      'Cannot extend non-union type "Foo".',
+    );
+
+    const inputSDL = `
+      extend input Foo @foo
+    `;
+    expect(() => extendTestSchema(inputSDL)).to.throw(
+      'Cannot extend non-input object type "Foo".',
+    );
   });
 
   describe('can add additional root operation types', () => {
     it('does not automatically include common root type names', () => {
-      const ast = parse(`
+      const schema = extendTestSchema(`
         type Mutation {
           doSomething: String
         }
       `);
-      const schema = extendSchema(testSchema, ast);
       expect(schema.getMutationType()).to.equal(null);
     });
 
     it('does not allow new schema within an extension', () => {
-      const ast = parse(`
+      const sdl = `
         schema {
           mutation: Mutation
         }
@@ -897,14 +1276,14 @@ describe('extendSchema', () => {
         type Mutation {
           doSomething: String
         }
-      `);
-      expect(() => extendSchema(testSchema, ast)).to.throw(
+      `;
+      expect(() => extendTestSchema(sdl)).to.throw(
         'Cannot define a new schema within a schema extension.',
       );
     });
 
     it('adds new root types via schema extension', () => {
-      const ast = parse(`
+      const schema = extendTestSchema(`
         extend schema {
           mutation: Mutation
         }
@@ -913,13 +1292,12 @@ describe('extendSchema', () => {
           doSomething: String
         }
       `);
-      const schema = extendSchema(testSchema, ast);
       const mutationType = schema.getMutationType();
-      expect(mutationType && mutationType.name).to.equal('Mutation');
+      expect(mutationType).to.have.property('name', 'Mutation');
     });
 
     it('adds multiple new root types via schema extension', () => {
-      const ast = parse(`
+      const schema = extendTestSchema(`
         extend schema {
           mutation: Mutation
           subscription: Subscription
@@ -933,17 +1311,14 @@ describe('extendSchema', () => {
           hearSomething: String
         }
       `);
-      const schema = extendSchema(testSchema, ast);
       const mutationType = schema.getMutationType();
       const subscriptionType = schema.getSubscriptionType();
-      expect(mutationType && mutationType.name).to.equal('Mutation');
-      expect(subscriptionType && subscriptionType.name).to.equal(
-        'Subscription',
-      );
+      expect(mutationType).to.have.property('name', 'Mutation');
+      expect(subscriptionType).to.have.property('name', 'Subscription');
     });
 
     it('applies multiple schema extensions', () => {
-      const ast = parse(`
+      const schema = extendTestSchema(`
         extend schema {
           mutation: Mutation
         }
@@ -960,17 +1335,14 @@ describe('extendSchema', () => {
           hearSomething: String
         }
       `);
-      const schema = extendSchema(testSchema, ast);
       const mutationType = schema.getMutationType();
       const subscriptionType = schema.getSubscriptionType();
-      expect(mutationType && mutationType.name).to.equal('Mutation');
-      expect(subscriptionType && subscriptionType.name).to.equal(
-        'Subscription',
-      );
+      expect(mutationType).to.have.property('name', 'Mutation');
+      expect(subscriptionType).to.have.property('name', 'Subscription');
     });
 
     it('schema extension AST are available from schema object', () => {
-      const ast = parse(`
+      let schema = extendTestSchema(`
         extend schema {
           mutation: Mutation
         }
@@ -987,14 +1359,11 @@ describe('extendSchema', () => {
           hearSomething: String
         }
       `);
-      let schema = extendSchema(testSchema, ast);
 
-      const secondAST = parse(`
+      const ast = parse(`
         extend schema @foo
-
-        directive @foo on SCHEMA
       `);
-      schema = extendSchema(schema, secondAST);
+      schema = extendSchema(schema, ast);
 
       const nodes = schema.extensionASTNodes;
       expect(nodes.map(n => print(n) + '\n').join('')).to.equal(dedent`
@@ -1009,7 +1378,7 @@ describe('extendSchema', () => {
     });
 
     it('does not allow redefining an existing root type', () => {
-      const ast = parse(`
+      const sdl = `
         extend schema {
           query: SomeType
         }
@@ -1017,14 +1386,14 @@ describe('extendSchema', () => {
         type SomeType {
           seeSomething: String
         }
-      `);
-      expect(() => extendSchema(testSchema, ast)).to.throw(
+      `;
+      expect(() => extendTestSchema(sdl)).to.throw(
         'Must provide only one query type in schema.',
       );
     });
 
     it('does not allow defining a root operation type twice', () => {
-      const ast = parse(`
+      const sdl = `
         extend schema {
           mutation: Mutation
         }
@@ -1036,14 +1405,14 @@ describe('extendSchema', () => {
         type Mutation {
           doSomething: String
         }
-      `);
-      expect(() => extendSchema(testSchema, ast)).to.throw(
+      `;
+      expect(() => extendTestSchema(sdl)).to.throw(
         'Must provide only one mutation type in schema.',
       );
     });
 
     it('does not allow defining a root operation type with different types', () => {
-      const ast = parse(`
+      const sdl = `
         extend schema {
           mutation: Mutation
         }
@@ -1059,8 +1428,8 @@ describe('extendSchema', () => {
         type SomethingElse {
           doSomethingElse: String
         }
-      `);
-      expect(() => extendSchema(testSchema, ast)).to.throw(
+      `;
+      expect(() => extendTestSchema(sdl)).to.throw(
         'Must provide only one mutation type in schema.',
       );
     });

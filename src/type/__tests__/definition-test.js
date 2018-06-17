@@ -23,6 +23,7 @@ import {
 import { describe, it } from 'mocha';
 import { expect } from 'chai';
 
+import inspect from '../../jsutils/inspect';
 import { isObjectType, isInputType, isOutputType } from '../definition';
 
 const BlogImage = new GraphQLObjectType({
@@ -348,6 +349,26 @@ describe('Type System: Example', () => {
     expect(String(GraphQLList(GraphQLList(GraphQLInt)))).to.equal('[[Int]]');
   });
 
+  it('JSON stringifies simple types', () => {
+    expect(JSON.stringify(GraphQLInt)).to.equal('"Int"');
+    expect(JSON.stringify(BlogArticle)).to.equal('"Article"');
+    expect(JSON.stringify(InterfaceType)).to.equal('"Interface"');
+    expect(JSON.stringify(UnionType)).to.equal('"Union"');
+    expect(JSON.stringify(EnumType)).to.equal('"Enum"');
+    expect(JSON.stringify(InputObjectType)).to.equal('"InputObject"');
+    expect(JSON.stringify(GraphQLNonNull(GraphQLInt))).to.equal('"Int!"');
+    expect(JSON.stringify(GraphQLList(GraphQLInt))).to.equal('"[Int]"');
+    expect(JSON.stringify(GraphQLNonNull(GraphQLList(GraphQLInt)))).to.equal(
+      '"[Int]!"',
+    );
+    expect(JSON.stringify(GraphQLList(GraphQLNonNull(GraphQLInt)))).to.equal(
+      '"[Int!]"',
+    );
+    expect(JSON.stringify(GraphQLList(GraphQLList(GraphQLInt)))).to.equal(
+      '"[[Int]]"',
+    );
+  });
+
   it('identifies input types', () => {
     const expected = [
       [GraphQLInt, true],
@@ -637,7 +658,7 @@ describe('Type System: Object fields must have valid resolve values', () => {
   it('rejects an empty Object field resolver', () => {
     expect(() => schemaWithObjectWithFieldResolver({})).to.throw(
       'BadResolver.badField field resolver must be a function if provided, ' +
-        'but got: [object Object].',
+        'but got: {}.',
     );
   });
 
@@ -1119,7 +1140,7 @@ describe('Type System: List must accept only types', () => {
   notTypes.forEach(type => {
     it(`rejects a non-type as item type of list: ${type}`, () => {
       expect(() => GraphQLList(type)).to.throw(
-        `Expected ${type} to be a GraphQL type.`,
+        `Expected ${inspect(type)} to be a GraphQL type.`,
       );
     });
   });
@@ -1155,7 +1176,7 @@ describe('Type System: NonNull must only accept non-nullable types', () => {
   notNullableTypes.forEach(type => {
     it(`rejects a non-type as nullable type of non-null: ${type}`, () => {
       expect(() => GraphQLNonNull(type)).to.throw(
-        `Expected ${type} to be a GraphQL nullable type.`,
+        `Expected ${inspect(type)} to be a GraphQL nullable type.`,
       );
     });
   });

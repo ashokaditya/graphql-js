@@ -7,6 +7,7 @@
  * @flow strict
  */
 
+import inspect from '../../jsutils/inspect';
 import type ValidationContext from '../ValidationContext';
 import { GraphQLError } from '../../error';
 import { Kind } from '../../language/kinds';
@@ -20,12 +21,12 @@ import type { GraphQLSchema } from '../../type/schema';
 
 export function badVarPosMessage(
   varName: string,
-  varType: GraphQLType,
-  expectedType: GraphQLType,
+  varType: string,
+  expectedType: string,
 ): string {
   return (
-    `Variable "$${varName}" of type "${String(varType)}" used in ` +
-    `position expecting type "${String(expectedType)}".`
+    `Variable "$${varName}" of type "${varType}" used in ` +
+    `position expecting type "${expectedType}".`
   );
 }
 
@@ -67,10 +68,10 @@ export function VariablesInAllowedPosition(
               )
             ) {
               context.reportError(
-                new GraphQLError(badVarPosMessage(varName, varType, type), [
-                  varDef,
-                  node,
-                ]),
+                new GraphQLError(
+                  badVarPosMessage(varName, inspect(varType), inspect(type)),
+                  [varDef, node],
+                ),
               );
             }
           }

@@ -18,6 +18,7 @@ import {
   GraphQLString,
   GraphQLNonNull,
   GraphQLScalarType,
+  GraphQLEnumType,
 } from '../../type';
 
 const TestComplexScalar = new GraphQLScalarType({
@@ -60,6 +61,18 @@ const TestNestedInputObject = new GraphQLInputObjectType({
   },
 });
 
+const TestEnum = new GraphQLEnumType({
+  name: 'TestEnum',
+  values: {
+    NULL: { value: null },
+    UNDEFINED: { value: undefined },
+    NAN: { value: NaN },
+    FALSE: { value: false },
+    CUSTOM: { value: 'custom value' },
+    DEFAULT_VALUE: {},
+  },
+});
+
 function fieldWithInputArg(inputArg) {
   return {
     type: GraphQLString,
@@ -75,6 +88,10 @@ function fieldWithInputArg(inputArg) {
 const TestType = new GraphQLObjectType({
   name: 'TestType',
   fields: {
+    fieldWithEnumInput: fieldWithInputArg({ type: TestEnum }),
+    fieldWithNonNullableEnumInput: fieldWithInputArg({
+      type: GraphQLNonNull(TestEnum),
+    }),
     fieldWithObjectInput: fieldWithInputArg({ type: TestInputObject }),
     fieldWithNullableStringInput: fieldWithInputArg({ type: GraphQLString }),
     fieldWithNonNullableStringInput: fieldWithInputArg({
@@ -354,7 +371,7 @@ describe('Execute: Handles inputs', () => {
             {
               message:
                 'Variable "$input" got invalid value ' +
-                '{"a":"foo","b":"bar","c":null}; ' +
+                '{a: "foo", b: "bar", c: null}; ' +
                 'Expected non-nullable type String! not to be null at value.c.',
               locations: [{ line: 2, column: 16 }],
             },
@@ -384,7 +401,7 @@ describe('Execute: Handles inputs', () => {
           errors: [
             {
               message:
-                'Variable "$input" got invalid value {"a":"foo","b":"bar"}; ' +
+                'Variable "$input" got invalid value {a: "foo", b: "bar"}; ' +
                 'Field value.c of required type String! was not provided.',
               locations: [{ line: 2, column: 16 }],
             },
@@ -404,13 +421,13 @@ describe('Execute: Handles inputs', () => {
           errors: [
             {
               message:
-                'Variable "$input" got invalid value {"na":{"a":"foo"}}; ' +
+                'Variable "$input" got invalid value {na: {a: "foo"}}; ' +
                 'Field value.na.c of required type String! was not provided.',
               locations: [{ line: 2, column: 18 }],
             },
             {
               message:
-                'Variable "$input" got invalid value {"na":{"a":"foo"}}; ' +
+                'Variable "$input" got invalid value {na: {a: "foo"}}; ' +
                 'Field value.nb of required type String! was not provided.',
               locations: [{ line: 2, column: 18 }],
             },
@@ -429,12 +446,50 @@ describe('Execute: Handles inputs', () => {
             {
               message:
                 'Variable "$input" got invalid value ' +
-                '{"a":"foo","b":"bar","c":"baz","extra":"dog"}; ' +
+                '{a: "foo", b: "bar", c: "baz", extra: "dog"}; ' +
                 'Field "extra" is not defined by type TestInputObject.',
               locations: [{ line: 2, column: 16 }],
             },
           ],
         });
+      });
+    });
+  });
+
+  describe('Handles custom enum values', () => {
+    it('allows custom enum values as inputs', () => {
+      const result = executeQuery(`
+        {
+          null: fieldWithEnumInput(input: NULL)
+          NaN: fieldWithEnumInput(input: NAN)
+          false: fieldWithEnumInput(input: FALSE)
+          customValue: fieldWithEnumInput(input: CUSTOM)
+          defaultValue: fieldWithEnumInput(input: DEFAULT_VALUE)
+        }
+      `);
+
+      expect(result).to.deep.equal({
+        data: {
+          null: 'null',
+          NaN: 'NaN',
+          false: 'false',
+          customValue: "'custom value'",
+          defaultValue: "'DEFAULT_VALUE'",
+        },
+      });
+    });
+
+    it('allows non-nullable inputs to have null as enum custom value', () => {
+      const result = executeQuery(`
+        {
+          fieldWithNonNullableEnumInput(input: NULL)
+        }
+      `);
+
+      expect(result).to.deep.equal({
+        data: {
+          fieldWithNonNullableEnumInput: 'null',
+        },
       });
     });
   });
@@ -638,21 +693,14 @@ describe('Execute: Handles inputs', () => {
         errors: [
           {
             message:
-              'Variable "$value" got invalid value [1,2,3]; Expected type ' +
-              'String; String cannot represent an array value: [1,2,3]',
+              'Variable "$value" got invalid value [1, 2, 3]; Expected type ' +
+              'String; String cannot represent a non string value: [1, 2, 3]',
             locations: [{ line: 2, column: 16 }],
           },
         ],
       });
 
       expect(result.errors[0].originalError).not.to.equal(undefined);
-    });
-
-    it('serializing an array via GraphQLString throws TypeError', () => {
-      expect(() => GraphQLString.serialize([1, 2, 3])).to.throw(
-        TypeError,
-        'String cannot represent an array value: [1,2,3]',
-      );
     });
 
     it('reports error for non-provided variables for non-nullable inputs', () => {
@@ -793,7 +841,7 @@ describe('Execute: Handles inputs', () => {
         errors: [
           {
             message:
-              'Variable "$input" got invalid value ["A",null,"B"]; ' +
+              'Variable "$input" got invalid value ["A", null, "B"]; ' +
               'Expected non-nullable type String! not to be null at value[1].',
             locations: [{ line: 2, column: 16 }],
           },
@@ -843,7 +891,7 @@ describe('Execute: Handles inputs', () => {
         errors: [
           {
             message:
-              'Variable "$input" got invalid value ["A",null,"B"]; ' +
+              'Variable "$input" got invalid value ["A", null, "B"]; ' +
               'Expected non-nullable type String! not to be null at value[1].',
             locations: [{ line: 2, column: 16 }],
           },

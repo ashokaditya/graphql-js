@@ -9,30 +9,30 @@
 
 import type ValidationContext from '../ValidationContext';
 import { GraphQLError } from '../../error';
+import inspect from '../../jsutils/inspect';
 import keyMap from '../../jsutils/keyMap';
 import { isNonNullType } from '../../type/definition';
-import type { GraphQLType } from '../../type/definition';
 import type { ASTVisitor } from '../../language/visitor';
 
 export function missingFieldArgMessage(
   fieldName: string,
   argName: string,
-  type: GraphQLType,
+  type: string,
 ): string {
   return (
     `Field "${fieldName}" argument "${argName}" of type ` +
-    `"${String(type)}" is required but not provided.`
+    `"${type}" is required but not provided.`
   );
 }
 
 export function missingDirectiveArgMessage(
   directiveName: string,
   argName: string,
-  type: GraphQLType,
+  type: string,
 ): string {
   return (
     `Directive "@${directiveName}" argument "${argName}" of type ` +
-    `"${String(type)}" is required but not provided.`
+    `"${type}" is required but not provided.`
   );
 }
 
@@ -68,7 +68,7 @@ export function ProvidedRequiredArguments(
                 missingFieldArgMessage(
                   node.name.value,
                   argDef.name,
-                  argDef.type,
+                  inspect(argDef.type),
                 ),
                 [node],
               ),
@@ -100,7 +100,7 @@ export function ProvidedRequiredArguments(
                 missingDirectiveArgMessage(
                   node.name.value,
                   argDef.name,
-                  argDef.type,
+                  inspect(argDef.type),
                 ),
                 [node],
               ),

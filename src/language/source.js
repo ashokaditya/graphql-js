@@ -8,6 +8,7 @@
  */
 
 import invariant from '../jsutils/invariant';
+import defineToStringTag from '../jsutils/defineToStringTag';
 
 type Location = {
   line: number,
@@ -41,3 +42,6 @@ export class Source {
     );
   }
 }
+
+// Conditionally apply `[Symbol.toStringTag]` if `Symbol`s are supported
+defineToStringTag(Source);

@@ -31,7 +31,9 @@ import {
   specifiedDirectives,
 } from './directives';
 import type { GraphQLError } from '../error/GraphQLError';
+import inspect from '../jsutils/inspect';
 import { __Schema } from './introspection';
+import defineToStringTag from '../jsutils/defineToStringTag';
 import find from '../jsutils/find';
 import instanceOf from '../jsutils/instanceOf';
 import invariant from '../jsutils/invariant';
@@ -87,7 +89,7 @@ export class GraphQLSchema {
   // Used as a cache for validateSchema().
   __validationErrors: ?$ReadOnlyArray<GraphQLError>;
   // Referenced by validateSchema().
-  __allowedLegacyNames: ?$ReadOnlyArray<string>;
+  __allowedLegacyNames: $ReadOnlyArray<string>;
 
   constructor(config: GraphQLSchemaConfig): void {
     // If this schema was built from a source known to be valid, then it may be
@@ -103,21 +105,21 @@ export class GraphQLSchema {
       );
       invariant(
         !config.types || Array.isArray(config.types),
-        `"types" must be Array if provided but got: ${String(config.types)}.`,
+        `"types" must be Array if provided but got: ${inspect(config.types)}.`,
       );
       invariant(
         !config.directives || Array.isArray(config.directives),
         '"directives" must be Array if provided but got: ' +
-          `${String(config.directives)}.`,
+          `${inspect(config.directives)}.`,
       );
       invariant(
         !config.allowedLegacyNames || Array.isArray(config.allowedLegacyNames),
         '"allowedLegacyNames" must be Array if provided but got: ' +
-          `${String(config.allowedLegacyNames)}.`,
+          `${inspect(config.allowedLegacyNames)}.`,
       );
     }
 
-    this.__allowedLegacyNames = config.allowedLegacyNames;
+    this.__allowedLegacyNames = config.allowedLegacyNames || [];
     this._queryType = config.query;
     this._mutationType = config.mutation;
     this._subscriptionType = config.subscription;
@@ -229,6 +231,9 @@ export class GraphQLSchema {
     return find(this.getDirectives(), directive => directive.name === name);
   }
 }
+
+// Conditionally apply `[Symbol.toStringTag]` if `Symbol`s are supported
+defineToStringTag(GraphQLSchema);
 
 type TypeMap = ObjMap<GraphQLNamedType>;
 

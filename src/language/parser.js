@@ -7,6 +7,7 @@
  * @flow strict
  */
 
+import inspect from '../jsutils/inspect';
 import { Source } from './source';
 import { syntaxError } from '../error';
 import type { GraphQLError } from '../error';
@@ -83,7 +84,7 @@ export type ParseOptions = {
    * specification.
    *
    * This option is provided to ease adoption of the final SDL specification
-   * and will be removed in a future major release.
+   * and will be removed in v16.
    */
   allowLegacySDLEmptyFields?: boolean,
 
@@ -93,7 +94,7 @@ export type ParseOptions = {
    * current specification.
    *
    * This option is provided to ease adoption of the final SDL specification
-   * and will be removed in a future major release.
+   * and will be removed in v16.
    */
   allowLegacySDLImplementsInterfaces?: boolean,
 
@@ -126,7 +127,7 @@ export function parse(
 ): DocumentNode {
   const sourceObj = typeof source === 'string' ? new Source(source) : source;
   if (!(sourceObj instanceof Source)) {
-    throw new TypeError('Must provide Source. Received: ' + String(sourceObj));
+    throw new TypeError(`Must provide Source. Received: ${inspect(sourceObj)}`);
   }
   const lexer = createLexer(sourceObj, options || {});
   return parseDocument(lexer);
